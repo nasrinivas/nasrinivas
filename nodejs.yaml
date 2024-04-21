@@ -1,0 +1,57 @@
+---
+- name: Deploy Node.js application on VSI
+  hosts: localhost
+  gather_facts: no
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+      become: yes
+    
+    - name: Install Node.js and npm
+      apt:
+        name: ['nodejs', 'npm']
+        state: present
+      become: yes
+
+    - name: Install PM2 process manager
+      npm:
+        name: pm2
+        global: yes
+      become: yes
+
+    - name: Create application directory
+      file:
+        path: /opt/appn
+        state: directory
+      become: yes
+
+    - name: Copy Node.js application files
+      ansible.builtin.copy:
+        src: /root/app.js
+        dest: /opt/appn
+      become: true
+
+    - name: List files in application directory
+      ansible.builtin.find:
+       paths: /opt/appn
+       file_type: file
+      register: application_files
+
+    - name: Print list of files
+      ansible.builtin.debug:
+        var: application_files.files
+
+
+    - name: Install application dependencies
+      ansible.builtin.command:
+        cmd: "npm install"
+        chdir: /opt/appn 
+
+    - name: Start Node.js application using PM2
+      command: pm2 start app.js
+      args:
+       chdir: /opt/appn
+      become: yes
+

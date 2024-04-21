@@ -1,0 +1,41 @@
+---
+- name: Add users with SSH keys and sudo permissions on EC2
+  hosts: localhost
+  become: yes
+  vars:
+    users:
+      - username: "tony"
+        ssh_key: ""
+        sudo: true  # Modify as needed
+  tasks:
+    - name: Add users
+      user:
+        name: "{{ item.username }}"
+        shell: /bin/bash
+        create_home: yes
+      with_items: "{{ users }}"
+
+    - name: Ensure .ssh directory exists
+      file:
+        path: "/home/{{ item.username }}/.ssh"
+        state: directory
+        owner: "{{ item.username }}"
+        group: "{{ item.username }}"
+        mode: "0700"
+      with_items: "{{ users }}"
+    - name: Add SSH keys for users
+      authorized_key:
+        user: "{{ item.username }}"
+        state: present
+        key: "{{ item.ssh_key }}"
+      with_items: "{{ users }}"
+
+    - name: Add sudo permissions for users
+      lineinfile:
+        dest: /etc/sudoers
+        line: "{{ item.username }} ALL=(ALL) NOPASSWD:ALL"
+        validate: /usr/sbin/visudo -cf %s
+        insertafter: EOF
+        state: present
+      with_items: "{{ users }}"
+

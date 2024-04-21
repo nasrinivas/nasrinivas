@@ -1,0 +1,56 @@
+---
+- hosts: localhost  # Replace with your EC2 instance group or hostname
+  gather_facts: no  # Disable gathering facts as we're using the aws.ec2_instance_info module
+  vars:
+    aws_region: "ap-southeast-2"  # Specify your AWS region here
+
+  collections:
+    - amazon.aws  # Include the amazon.aws collection
+
+  tasks:
+
+    - name: Get EC2 instance facts
+      amazon.aws.ec2_instance_info:
+        region: "{{ aws_region }}"
+      register: ec2_instance_info
+
+    - name: Identify device name for attached volume
+      ansible.builtin.set_fact:
+        device_name: "{{ '/dev/nvme' ~ (item.instance_type | regex_replace('^(t[34]).*$', '\\1', capture=1) | int + 1) }}"
+      when: item.instance_type is search('^(t3|t4).*$')
+      loop: "{{ ec2_instance_info.instances }}"
+
+    - name: Identify device name for attached volume (Legacy instances)
+      ansible.builtin.set_fact:
+        device_name: "/dev/sd{{ ec2_instance_info.instances[0].block_device_mappings | length }}"
+      when: not ec2_instance_info.instances[0].instance_type is search('^(t3|t4).*$')
+
+    - name: Create mount point directory
+      ansible.builtin.file:
+        path: /home/srinu
+        state: directory
+        mode: '0755'
+
+    - name: Format the volume (if needed)
+      ansible.builtin.shell:
+        cmd: "sudo mkfs.ext2 /dev/xvdh"
+        creates: "/dev/xvdh"
+      when: device_name is defined and device_name not in (ec2_instance_info.instances[0].block_device_mappings | map(attribute='device_name') | list) 
+
+    - name: Check filesystem status
+      ansible.builtin.shell:
+        cmd: "sudo file -s /dev/xvdh"
+      register: filesystem_check
+
+    - name: Format the volume if it's unformatted
+      ansible.builtin.shell:
+        cmd: "sudo mkfs.ext2 /dev/xvdh"
+
+    - name: Mount the volume
+      ansible.builtin.mount:
+        path: /home/srinu
+        src: "/dev/xvdh"
+        fstype: ext2
+        state: mounted
+        opts: defaults
+      become: yes
