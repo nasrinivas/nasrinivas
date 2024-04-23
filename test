@@ -1,0 +1,8 @@
+# Create a non-root user with UID/GID 1000
+RUN groupadd -r -g 1000 appgroup && useradd -r -u 1000 -g appgroup appuser
+
+# Set ownership of app directory to the non-root user
+RUN chown -R appuser:appgroup /app
+
+# Switch to the non-root user
+USER appuser
