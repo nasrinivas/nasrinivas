@@ -6,3 +6,78 @@ RUN chown -R appuser:appgroup /app
 
 # Switch to the non-root user
 USER appuser
+==================================================================================
+
+pipeline {
+    agent any
+
+    environment {
+        // Docker Hub credentials
+        DOCKERHUB_USERNAME = credentials('dockerhub-username')
+        DOCKERHUB_PASSWORD = credentials('dockerhub-password')
+
+        // AWS credentials
+        AWS_ACCESS_KEY_ID = credentials('aws-access-key-id')
+        AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
+        AWS_DEFAULT_REGION = 'your-region' // e.g., us-west-2
+        
+        // EKS cluster details
+        EKS_CLUSTER_NAME = 'your-cluster-name'
+    }
+
+    stages {
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    // Build Docker image
+                    sh 'docker build -t your-image-name .'
+                }
+            }
+        }
+
+        stage('Push Image to Docker Hub') {
+            steps {
+                script {
+                    // Log in to Docker Hub
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', passwordVariable: 'DOCKERHUB_PASSWORD', usernameVariable: 'DOCKERHUB_USERNAME')]) {
+                        sh "docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_PASSWORD"
+                    }
+
+                    // Push Docker image to Docker Hub
+                    sh 'docker push your-dockerhub-username/your-image-name'
+                }
+            }
+        }
+
+        stage('Update Kubernetes Artifacts') {
+            steps {
+                script {
+                    // Update Kubernetes deployment manifest with the latest image tag
+                    sh 'sed -i "s|image: your-dockerhub-username/your-image-name:old_tag|image: your-dockerhub-username/your-image-name:new_tag|g" your-deployment-manifest.yaml'
+
+                    // Apply updated Kubernetes manifest to the cluster
+                    sh 'kubectl apply -f your-deployment-manifest.yaml --kubeconfig=./kubeconfig'
+                }
+            }
+        }
+
+        stage('Deploy to EKS') {
+            steps {
+                script {
+                    // Configure AWS CLI with credentials
+                    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', accessKeyVariable: 'AWS_ACCESS_KEY_ID', credentialsId: 'aws-access-key-id', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+                        sh 'aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID'
+                        sh 'aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY'
+                        sh 'aws configure set region $AWS_DEFAULT_REGION'
+                    }
+
+                    // Update kubeconfig to connect to EKS cluster
+                    sh "aws eks update-kubeconfig --name ${EKS_CLUSTER_NAME} --region ${AWS_DEFAULT_REGION}"
+
+                    // Deploy your Kubernetes manifests (e.g., YAML files) to the cluster
+                    sh 'kubectl apply -f your-deployment-manifest.yaml'
+                }
+            }
+        }
+    }
+}
