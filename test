@@ -81,3 +81,89 @@ pipeline {
         }
     }
 }
+
+========================================================================================
+=======================================================================================
+pipeline {
+    agent any
+
+    environment {
+        // Docker Hub credentials
+        DOCKERHUB_USERNAME = credentials('dockerhub-username')
+        DOCKERHUB_PASSWORD = credentials('dockerhub-password')
+
+        // AWS credentials
+        AWS_ACCESS_KEY_ID = credentials('aws-access-key-id')
+        AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
+        AWS_DEFAULT_REGION = 'your-region' // e.g., us-west-2
+        
+        // EKS cluster details
+        EKS_CLUSTER_NAME = 'your-cluster-name'
+    }
+
+    stages {
+        stage('Clone Code') {
+            steps {
+                // Clone code from Git repository
+                git 'https://github.com/your/repository.git'
+            }
+        }
+
+        stage('Build Docker Images') {
+            steps {
+                // Build Docker images
+                script {
+                    sh 'docker build -t your-image-name .'
+                }
+            }
+        }
+
+        stage('Push Images to Docker Hub') {
+            steps {
+                // Log in to Docker Hub
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', passwordVariable: 'DOCKERHUB_PASSWORD', usernameVariable: 'DOCKERHUB_USERNAME')]) {
+                        sh "docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_PASSWORD"
+                    }
+                }
+                
+                // Push Docker images to Docker Hub
+                script {
+                    sh 'docker push your-dockerhub-username/your-image-name'
+                }
+            }
+        }
+
+        stage('Update Kubernetes Manifests') {
+            steps {
+                // Update Kubernetes deployment manifest with the latest image tag
+                script {
+                    sh 'sed -i "s|image: your-dockerhub-username/your-image-name:old_tag|image: your-dockerhub-username/your-image-name:new_tag|g" your-deployment-manifest.yaml'
+                }
+            }
+        }
+
+        stage('Deploy to EKS') {
+            steps {
+                // Configure AWS CLI with credentials
+                script {
+                    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', accessKeyVariable: 'AWS_ACCESS_KEY_ID', credentialsId: 'aws-access-key-id', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+                        sh 'aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID'
+                        sh 'aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY'
+                        sh 'aws configure set region $AWS_DEFAULT_REGION'
+                    }
+                }
+
+                // Update kubeconfig to connect to EKS cluster
+                script {
+                    sh "aws eks update-kubeconfig --name ${EKS_CLUSTER_NAME} --region ${AWS_DEFAULT_REGION}"
+                }
+
+                // Deploy updated Kubernetes manifest to the cluster
+                script {
+                    sh 'kubectl apply -f your-deployment-manifest.yaml'
+                }
+            }
+        }
+    }
+}
